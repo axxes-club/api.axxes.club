@@ -1,0 +1,474 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ACCOUNTS & API KEYS
+// ─────────────────────────────────────────────────────────────────
+
+model Account {
+  id                       String   @id @default(cuid())
+  name                     String
+  email                    String   @unique
+  
+  // Stripe Connect
+  stripeAccountId          String?  @unique
+  stripeOnboardingComplete Boolean  @default(false)
+  stripeChargesEnabled     Boolean  @default(false)
+  stripePayoutsEnabled     Boolean  @default(false)
+  
+  // Settings
+  defaultCurrency          String   @default("usd")
+  timezone                 String   @default("America/New_York")
+  
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  
+  apiKeys                  ApiKey[]
+  events                   Event[]
+  customers                Customer[]
+  webhookEndpoints         WebhookEndpoint[]
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  accountId   String
+  
+  // Key format: pk_test_xxx, sk_test_xxx, pk_live_xxx, sk_live_xxx
+  key         String   @unique
+  keyHash     String   // SHA256 hash for lookup
+  name        String   @default("Default")
+  
+  // Type: publishable (client-side) or secret (server-side)
+  type        ApiKeyType
+  
+  // Mode: test or live
+  mode        ApiMode
+  
+  // Permissions (for restricted keys)
+  permissions String[] @default([])
+  
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  
+  createdAt   DateTime @default(now())
+  
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  @@index([keyHash])
+  @@index([accountId])
+}
+
+enum ApiKeyType {
+  PUBLISHABLE
+  SECRET
+  RESTRICTED
+}
+
+enum ApiMode {
+  TEST
+  LIVE
+}
+
+// ─────────────────────────────────────────────────────────────────
+// EVENTS
+// ─────────────────────────────────────────────────────────────────
+
+model Event {
+  id              String      @id @default(cuid())
+  accountId       String
+  
+  // Basics
+  name            String
+  description     String?
+  slug            String
+  
+  // When
+  startsAt        DateTime
+  endsAt          DateTime?
+  timezone        String      @default("America/New_York")
+  
+  // Where
+  venueName       String
+  venueAddress    String?
+  city            String
+  state           String?
+  country         String      @default("US")
+  latitude        Float?
+  longitude       Float?
+  isAddressHidden Boolean     @default(false) // Reveal after purchase
+  
+  // Media
+  imageUrl        String?
+  
+  // Status
+  status          EventStatus @default(DRAFT)
+  
+  // Metadata (like Stripe's metadata)
+  metadata        Json?
+  
+  // Mode (test events vs live events)
+  livemode        Boolean     @default(false)
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  account         Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ticketTypes     TicketType[]
+  orders          Order[]
+  tickets         Ticket[]
+  scanners        Scanner[]
+  
+  @@unique([accountId, slug])
+  @@index([accountId])
+  @@index([status])
+  @@index([startsAt])
+  @@index([livemode])
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TICKET TYPES (like Stripe's Products/Prices)
+// ─────────────────────────────────────────────────────────────────
+
+model TicketType {
+  id              String   @id @default(cuid())
+  eventId         String
+  
+  name            String
+  description     String?
+  
+  // Pricing (in cents, like Stripe)
+  price           Int
+  currency        String   @default("usd")
+  
+  // Inventory
+  quantity        Int?     // null = unlimited
+  quantitySold    Int      @default(0)
+  
+  // Sale window
+  salesStartAt    DateTime?
+  salesEndAt      DateTime?
+  
+  // Purchase limits
+  minPerOrder     Int      @default(1)
+  maxPerOrder     Int      @default(10)
+  
+  // Display
+  sortOrder       Int      @default(0)
+  isVisible       Boolean  @default(true)
+  
+  // Metadata
+  metadata        Json?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  event           Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orderItems      OrderItem[]
+  tickets         Ticket[]
+  
+  @@index([eventId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CUSTOMERS
+// ─────────────────────────────────────────────────────────────────
+
+model Customer {
+  id              String   @id @default(cuid())
+  accountId       String
+  
+  email           String
+  name            String?
+  phone           String?
+  
+  // Stripe customer ID (for saved payment methods)
+  stripeCustomerId String?
+  
+  metadata        Json?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  orders          Order[]
+  tickets         Ticket[]
+  
+  @@unique([accountId, email])
+  @@index([accountId])
+  @@index([email])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ORDERS
+// ─────────────────────────────────────────────────────────────────
+
+model Order {
+  id                    String      @id @default(cuid())
+  eventId               String
+  customerId            String?
+  
+  // Order number (human-readable)
+  number                String      @unique
+  
+  // Totals (in cents)
+  subtotal              Int
+  platformFee           Int         @default(0)
+  processingFee         Int         @default(0)
+  total                 Int
+  currency              String      @default("usd")
+  
+  // Payment
+  stripePaymentIntentId String?     @unique
+  stripeChargeId        String?
+  
+  status                OrderStatus @default(PENDING)
+  
+  // Guest checkout info (if no customer)
+  guestEmail            String?
+  guestName             String?
+  
+  // Idempotency
+  idempotencyKey        String?     @unique
+  
+  metadata              Json?
+  livemode              Boolean     @default(false)
+  
+  paidAt                DateTime?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  
+  event                 Event       @relation(fields: [eventId], references: [id])
+  customer              Customer?   @relation(fields: [customerId], references: [id])
+  items                 OrderItem[]
+  tickets               Ticket[]
+  
+  @@index([eventId])
+  @@index([customerId])
+  @@index([status])
+  @@index([livemode])
+}
+
+model OrderItem {
+  id            String     @id @default(cuid())
+  orderId       String
+  ticketTypeId  String
+  
+  quantity      Int
+  unitPrice     Int
+  
+  order         Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketType    TicketType @relation(fields: [ticketTypeId], references: [id])
+  
+  @@index([orderId])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELLED
+  EXPIRED
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TICKETS
+// ─────────────────────────────────────────────────────────────────
+
+model Ticket {
+  id            String       @id @default(cuid())
+  eventId       String
+  orderId       String
+  ticketTypeId  String
+  customerId    String?
+  
+  // Human-readable ticket number
+  number        String       @unique
+  
+  // QR code data (the ticket ID itself, or a signed token)
+  qrData        String       @unique
+  
+  status        TicketStatus @default(VALID)
+  
+  checkedInAt   DateTime?
+  checkedInBy   String?      // Scanner ID
+  
+  metadata      Json?
+  livemode      Boolean      @default(false)
+  
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  
+  event         Event        @relation(fields: [eventId], references: [id])
+  order         Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketType    TicketType   @relation(fields: [ticketTypeId], references: [id])
+  customer      Customer?    @relation(fields: [customerId], references: [id])
+  scanLogs      ScanLog[]
+  
+  @@index([eventId])
+  @@index([orderId])
+  @@index([qrData])
+  @@index([status])
+  @@index([livemode])
+}
+
+enum TicketStatus {
+  VALID
+  CHECKED_IN
+  CANCELLED
+  REFUNDED
+  TRANSFERRED
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SCANNERS (Check-in devices/codes)
+// ─────────────────────────────────────────────────────────────────
+
+model Scanner {
+  id        String    @id @default(cuid())
+  eventId   String
+  
+  name      String
+  code      String    // 6-digit code for scanner login
+  
+  isActive  Boolean   @default(true)
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  scanLogs  ScanLog[]
+  
+  @@unique([eventId, code])
+  @@index([eventId])
+  @@index([code])
+}
+
+model ScanLog {
+  id         String     @id @default(cuid())
+  scannerId  String
+  ticketId   String?
+  
+  result     ScanResult
+  message    String?
+  
+  scannedAt  DateTime   @default(now())
+  
+  scanner    Scanner    @relation(fields: [scannerId], references: [id], onDelete: Cascade)
+  ticket     Ticket?    @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  
+  @@index([scannerId])
+  @@index([ticketId])
+  @@index([scannedAt])
+}
+
+enum ScanResult {
+  SUCCESS
+  ALREADY_CHECKED_IN
+  INVALID_TICKET
+  CANCELLED_TICKET
+  WRONG_EVENT
+}
+
+// ─────────────────────────────────────────────────────────────────
+// WEBHOOKS
+// ─────────────────────────────────────────────────────────────────
+
+model WebhookEndpoint {
+  id            String   @id @default(cuid())
+  accountId     String
+  
+  url           String
+  secret        String   // For signature verification
+  
+  // Events to send
+  enabledEvents String[] // ["*"] for all, or specific events
+  
+  status        WebhookStatus @default(ENABLED)
+  
+  // Delivery stats
+  lastDeliveryAt    DateTime?
+  lastDeliveryError String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  deliveries    WebhookDelivery[]
+  
+  @@index([accountId])
+}
+
+model WebhookDelivery {
+  id          String   @id @default(cuid())
+  endpointId  String
+  
+  eventType   String
+  payload     Json
+  
+  // Response
+  statusCode  Int?
+  responseMs  Int?
+  error       String?
+  
+  attempts    Int      @default(1)
+  
+  createdAt   DateTime @default(now())
+  deliveredAt DateTime?
+  
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  
+  @@index([endpointId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+enum WebhookStatus {
+  ENABLED
+  DISABLED
+}
+
+// ─────────────────────────────────────────────────────────────────
+// REQUEST LOGGING (for debugging / analytics)
+// ─────────────────────────────────────────────────────────────────
+
+model RequestLog {
+  id              String   @id @default(cuid())
+  
+  method          String
+  path            String
+  statusCode      Int
+  
+  apiKeyId        String?
+  accountId       String?
+  
+  idempotencyKey  String?
+  
+  requestBody     Json?
+  responseBody    Json?
+  
+  ip              String?
+  userAgent       String?
+  
+  durationMs      Int
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([accountId])
+  @@index([apiKeyId])
+  @@index([createdAt])
+  @@index([path])
+}

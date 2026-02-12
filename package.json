@@ -1,0 +1,33 @@
+{
+  "name": "api.axxes.club",
+  "version": "1.0.0",
+  "description": "The Stripe of ticketing - API-first event ticketing platform",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
+  },
+  "keywords": ["ticketing", "api", "events", "stripe"],
+  "author": "Jose Viscasillas",
+  "license": "MIT",
+  "dependencies": {
+    "@hono/node-server": "^1.14.0",
+    "@prisma/client": "^6.4.1",
+    "dotenv": "^16.4.7",
+    "hono": "^4.7.2",
+    "nanoid": "^5.0.9",
+    "prisma": "^6.4.1",
+    "stripe": "^17.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
