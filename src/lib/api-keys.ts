@@ -38,7 +38,7 @@ export function hashApiKey(key: string): string {
  */
 export function parseApiKey(key: string): { type: ApiKeyType; mode: ApiMode } | null {
   const parts = key.split("_");
-  if (parts.length !== 3) return null;
+  if (parts.length < 3) return null;
 
   const [prefix, modeStr] = parts;
 

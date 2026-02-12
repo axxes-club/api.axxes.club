@@ -13,16 +13,22 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"
   },
-  "keywords": ["ticketing", "api", "events", "stripe"],
+  "keywords": [
+    "ticketing",
+    "api",
+    "events",
+    "stripe"
+  ],
   "author": "Jose Viscasillas",
   "license": "MIT",
   "dependencies": {
     "@hono/node-server": "^1.14.0",
-    "@prisma/client": "^6.4.1",
+    "@prisma/client": "^5.22.0",
     "dotenv": "^16.4.7",
     "hono": "^4.7.2",
     "nanoid": "^5.0.9",
-    "prisma": "^6.4.1",
+    "pg": "^8.18.0",
+    "prisma": "^5.22.0",
     "stripe": "^17.5.0"
   },
   "devDependencies": {
