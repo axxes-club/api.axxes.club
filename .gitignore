@@ -22,3 +22,7 @@ prisma/migrations/
 *.log
 npm-debug.log*
 .vercel
+
+# AI tooling
+.aider*
+.sidecar/
