@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.vercel
+.netlify
+.mercelle
+.env
+.env.local
+.env.*.local
+.env.development
+.env.vercel*
+.db_url
+coverage
+e2e
+*.log
