@@ -10,7 +10,7 @@ def credentials(path):
         match=re.match(r'\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)',line)
         if not match:continue
         key,value=match.groups()
-        if key.startswith('NEXT_PUBLIC_') or not re.search(r'SECRET|TOKEN|PASSWORD|DATABASE_URL|PRIVATE_KEY|CREDENTIAL|API_KEY|ACCESS_KEY',key,re.I):continue
+        if key.startswith('NEXT_PUBLIC_') or not re.search(r'SECRET|TOKEN|PASS|DATABASE_URL|PRIVATE_KEY|CREDENTIAL|API_KEY|ACCESS_KEY',key,re.I):continue
         variants=[value.strip().strip('\"\'')]
         try:
             parsed=shlex.split(value,comments=True)
