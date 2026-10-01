@@ -10,6 +10,8 @@ Images are tagged with the full Git commit SHA and unique Google build ID and de
 
 Checks in addition to Linux production image build: no unit test/typecheck script exists in this source; Linux image build and HTTP readiness run.
 
-Build logs: https://console.cloud.google.com/cloud-build/builds;region=us-west1?project=gravy-meta
+Build logs: https://console.cloud.google.com/cloud-build/builds;region=global?project=gravy-meta
 
 BuildKit mounts the production dotenv only during Next compilation; it is excluded from COPY and removed from standalone output before final-image COPY. Every image is exported and all layers are inspected before publication. The gate rejects dotenv files (including files deleted by later layers) and matches private build-secret values without logging them; public NEXT_PUBLIC values are intentionally allowed. Test containers receive only a synthetic AUTH_SECRET and never production dotenv credentials.
+
+Google Cloud Build uses the global build pool; Cloud Run, source buckets and image registries remain in us-west1. The regional build pool allowed only one highcpu8 job, so global capacity avoids long production queues. GitHub jobs allow60minutes and poll for55minutes; failures, cancellation signals or polling deadline cancel unfinished remote builds instead of leaving queued deployments detached. The submit identity includes build cancellation permission for this lifecycle.
