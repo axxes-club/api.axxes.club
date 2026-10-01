@@ -1,5 +1,5 @@
 """Image-only Cloud Run release with staged probe, traffic guard and rollback."""
-import json,os,subprocess,time,urllib.request,urllib.error
+import json,os,subprocess,time,urllib.request,urllib.error,urllib.parse,ipaddress
 
 def gcloud(*args):
     result=subprocess.run(['gcloud',*args,'--quiet','--format=json'],capture_output=True,text=True)
@@ -9,6 +9,20 @@ def gcloud(*args):
 def traffic(service):
     return {t['revisionName']:t['percent'] for t in service['status'].get('traffic',[]) if t.get('percent',0)}
 
+def valid_response(code,location=None):
+    if 200<=code<300:return True
+    if code not in [301,302,303,307,308] or not location:return False
+    if location.startswith('/') and not location.startswith('//'):return True
+    target=urllib.parse.urlparse(location)
+    if target.scheme!='https' or not target.hostname:return False
+    host=target.hostname.lower()
+    if host=='localhost' or host.endswith('.localhost') or host.endswith('.local'):return False
+    try:
+        address=ipaddress.ip_address(host)
+        if not address.is_global:return False
+    except ValueError:pass
+    return True
+
 def probe(url):
     # A login redirect proves the application answered; never follow it to another origin.
     class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -17,10 +31,10 @@ def probe(url):
     for attempt in range(6):
         try:
             response=opener.open(urllib.request.Request(url,headers={'User-Agent':'AXXES-GCP-release-probe'}),timeout=20)
-            code=response.status
-        except urllib.error.HTTPError as error: code=error.code
-        except (urllib.error.URLError,TimeoutError): code=0
-        if 200<=code<400:return
+            code=response.status;location=response.headers.get('Location')
+        except urllib.error.HTTPError as error: code=error.code;location=error.headers.get('Location')
+        except (urllib.error.URLError,TimeoutError): code=0;location=None
+        if valid_response(code,location):return
         time.sleep(5)
     raise RuntimeError('Application readiness probe failed (HTTP '+str(code)+')')
 

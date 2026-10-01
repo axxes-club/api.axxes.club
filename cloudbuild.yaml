@@ -17,8 +17,6 @@
       "name": "gcr.io/cloud-builders/docker",
       "args": [
         "build",
-        "--target",
-        "build",
         "-t",
         "ci-check:$BUILD_ID",
         "."
