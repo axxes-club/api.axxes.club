@@ -1,0 +1,55 @@
+name: GCP production
+on:
+  push:
+    branches: [deploy/gcp]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: gcp-production-api
+  cancel-in-progress: false
+jobs:
+  cloud-build:
+    if: github.ref == 'refs/heads/deploy/gcp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: projects/777200802352/locations/global/workloadIdentityPools/axxes-github/providers/github
+          service_account: gh-api@gravy-meta.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+      - name: Submit and wait for Google Cloud Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_id=''
+          cancel_unfinished_build() {
+            workflow_exit=$?
+            trap - EXIT
+            if [[ "$workflow_exit" != 0 && -n "$build_id" ]]; then
+              cloud_build_state=$(gcloud builds describe "$build_id" --project=gravy-meta --region=global --format='value(status)' 2>/dev/null || true)
+              case "$cloud_build_state" in
+                SUCCESS|FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED) ;;
+                *) gcloud builds cancel "$build_id" --project=gravy-meta --region=global --quiet >/dev/null 2>&1 || echo "Remote build cancellation requires manual attention: $build_id" ;;
+              esac
+            fi
+            exit "$workflow_exit"
+          }
+          trap cancel_unfinished_build EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          build_id=$(gcloud builds submit . --project=gravy-meta --region=global --config=cloudbuild.yaml --service-account=projects/gravy-meta/serviceAccounts/cb-api@gravy-meta.iam.gserviceaccount.com --gcs-source-staging-dir=gs://gravy-meta-ci-api/source --substitutions=_TAG="$GITHUB_SHA" --async --format='value(id)')
+          echo "Google Cloud Build: $build_id"
+          poll_deadline=$((SECONDS + 3300))
+          while (( SECONDS < poll_deadline )); do
+            status=$(gcloud builds describe "$build_id" --project=gravy-meta --region=global --format='value(status)')
+            case "$status" in
+              SUCCESS) exit 0 ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED) echo "Build ended: $status"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo 'Build polling exceeded time limit'; exit 1
