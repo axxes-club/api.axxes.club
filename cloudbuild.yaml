@@ -24,6 +24,35 @@
       ]
     },
     {
+      "id": "export-runtime-layers",
+      "name": "gcr.io/cloud-builders/docker",
+      "args": [
+        "save",
+        "-o",
+        ".ci-image.tar",
+        "us-west1-docker.pkg.dev/$PROJECT_ID/ci-api/api:${_TAG}-$BUILD_ID"
+      ]
+    },
+    {
+      "id": "verify-no-secret-layers",
+      "name": "gcr.io/google.com/cloudsdktool/cloud-sdk:slim",
+      "entrypoint": "python3",
+      "args": [
+        "scripts/gcp-scan-image.py",
+        ".ci-image.tar",
+        ".env.production"
+      ]
+    },
+    {
+      "id": "remove-build-inputs",
+      "name": "gcr.io/google.com/cloudsdktool/cloud-sdk:slim",
+      "entrypoint": "bash",
+      "args": [
+        "-ec",
+        "rm -f .ci-image.tar .env.production"
+      ]
+    },
+    {
       "id": "push-image",
       "name": "gcr.io/cloud-builders/docker",
       "args": [
