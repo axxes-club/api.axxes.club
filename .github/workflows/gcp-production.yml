@@ -1,7 +1,7 @@
 name: GCP production
 on:
   push:
-    branches: [deploy/gcp]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   cloud-build:
-    if: github.ref == 'refs/heads/deploy/gcp'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -25,6 +25,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          remote_main_sha=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [[ "$remote_main_sha" != "$GITHUB_SHA" ]]; then
+            echo 'Skipping superseded main commit'
+            exit 0
+          fi
           build_id=''
           cancel_unfinished_build() {
             workflow_exit=$?
