@@ -4,15 +4,6 @@
   },
   "steps": [
     {
-      "id": "build-env",
-      "name": "gcr.io/google.com/cloudsdktool/cloud-sdk:slim",
-      "entrypoint": "bash",
-      "args": [
-        "-ec",
-        "umask 077; gcloud secrets versions access latest --secret=api-env > .env.production"
-      ]
-    },
-    {
       "id": "linux-build-and-check",
       "name": "gcr.io/cloud-builders/docker",
       "args": [
