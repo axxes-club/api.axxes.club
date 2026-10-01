@@ -14,6 +14,18 @@
       ]
     },
     {
+      "id": "unit-tests",
+      "name": "gcr.io/cloud-builders/docker",
+      "args": [
+        "run",
+        "--rm",
+        "ci-check:$BUILD_ID",
+        "sh",
+        "-c",
+        "npm run build && node scripts/test-prisma-cache.cjs"
+      ]
+    },
+    {
       "id": "runtime-image",
       "name": "gcr.io/cloud-builders/docker",
       "args": [
