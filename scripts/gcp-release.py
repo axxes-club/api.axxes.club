@@ -86,7 +86,11 @@ def release(service,image,build_id):
         if promotion_attempted:restore(service,original)
         raise
     finally:
-        if staged:gcloud('run','services','update-traffic',service,'--region='+region,'--remove-tags='+tag)
+        if staged:
+            try:gcloud('run','services','update-traffic',service,'--region='+region,'--remove-tags='+tag)
+            except Exception:
+                if promotion_attempted:restore(service,original)
+                raise RuntimeError('Release tag cleanup failed for '+service+'; production restored')
 
 def release_bundle(services,image,build_id):
     completed=[];saved={k:os.environ.get(k) for k in ['CI_READY_ONLY','CI_PUBLIC_HEALTH_URL']}
