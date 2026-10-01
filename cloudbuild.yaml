@@ -1,18 +1,63 @@
-# Builds an AXXES app image. Usage:
-#   gcloud builds submit --config cloudbuild.yaml --substitutions=_APP=<service>,_TAG=<git sha>
-substitutions:
-  _REGION: us-west1
-  _REPO: axxes
-steps:
-  - id: build-env
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    entrypoint: bash
-    args: ["-c", "gcloud secrets versions access latest --secret=${_APP}-env > .env.production"]
-  - id: image
-    name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_APP}:${_TAG}", "."]
-images: ["${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_APP}:${_TAG}"]
-options:
-  machineType: E2_HIGHCPU_8
-  logging: CLOUD_LOGGING_ONLY
-timeout: 1800s
+{
+  "substitutions": {
+    "_TAG": "manual"
+  },
+  "steps": [
+    {
+      "id": "build-env",
+      "name": "gcr.io/google.com/cloudsdktool/cloud-sdk:slim",
+      "entrypoint": "bash",
+      "args": [
+        "-ec",
+        "umask 077; gcloud secrets versions access latest --secret=api-env > .env.production"
+      ]
+    },
+    {
+      "id": "linux-build-and-check",
+      "name": "gcr.io/cloud-builders/docker",
+      "args": [
+        "build",
+        "--target",
+        "build",
+        "-t",
+        "ci-check:$BUILD_ID",
+        "."
+      ]
+    },
+    {
+      "id": "runtime-image",
+      "name": "gcr.io/cloud-builders/docker",
+      "args": [
+        "build",
+        "-t",
+        "us-west1-docker.pkg.dev/$PROJECT_ID/ci-api/api:${_TAG}-$BUILD_ID",
+        "."
+      ]
+    },
+    {
+      "id": "push-image",
+      "name": "gcr.io/cloud-builders/docker",
+      "args": [
+        "push",
+        "us-west1-docker.pkg.dev/$PROJECT_ID/ci-api/api:${_TAG}-$BUILD_ID"
+      ]
+    },
+    {
+      "id": "release",
+      "name": "gcr.io/google.com/cloudsdktool/cloud-sdk:slim",
+      "entrypoint": "bash",
+      "args": [
+        "-c",
+        "set -euo pipefail\nimage='us-west1-docker.pkg.dev/$PROJECT_ID/ci-api/api:${_TAG}-$BUILD_ID'\ndigest=$(gcloud artifacts docker images describe \"$$image\" --format='value(image_summary.digest)')\nexport CI_SERVICE='api' CI_BUILD_ID='$BUILD_ID' CI_IMAGE=\"$${image%:*}@$$digest\"\npython3 scripts/gcp-release.py\n"
+      ]
+    }
+  ],
+  "images": [
+    "us-west1-docker.pkg.dev/$PROJECT_ID/ci-api/api:${_TAG}-$BUILD_ID"
+  ],
+  "options": {
+    "machineType": "E2_HIGHCPU_8",
+    "logging": "CLOUD_LOGGING_ONLY"
+  },
+  "timeout": "1800s"
+}
