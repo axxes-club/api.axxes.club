@@ -6,6 +6,21 @@ def gcloud(*args):
     if result.returncode: raise RuntimeError('gcloud command failed: '+result.stderr[-2000:])
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
+# Public probes stay behind the load balancer after direct origin ingress is closed.
+PUBLIC_HEALTH_URLS = {'afters': 'https://afters.am/', 'api': 'https://api.axxes.club/health', 'atelier': 'https://atelier.axxes.app/', 'axxes-club': 'https://axxes.club/', 'binnacle': 'https://binnacle.axxes.club/', 'cloud': 'https://cloud.axxes.app/', 'dam': 'https://folders.axxes.app/', 'developer': 'https://developer.axxes.club/', 'gangstarz': 'https://gangstarz.axxes.club/api/health', 'handshake': 'https://handshake.axxes.club/', 'keel': 'https://keel.axxes.club/', 'krates': 'https://kr8s.axxes.club/', 'lanes': 'https://lanes.axxes.app/', 'manifest': 'https://manifest.axxes.club/', 'matters': 'https://matter.axxes.app/', 'members': 'https://members.axxes.club/', 'nexus': 'https://nexus.axxes.club/', 'office': 'https://axxes.work/', 'orc': 'https://orc.axxes.app/', 'payments': 'https://payments.axxes.app/', 'pulse': 'https://pulse.axxes.app/', 'qortr': 'https://qortr.com/', 'relay': 'https://relay.axxes.club/', 'tollbooth': 'https://tollbooth.axxes.club/', 'vibez': 'https://vibez.axxes.club/', 'vitrine': 'https://vitrine.axxes.club/', 'vitrine-app': 'https://vitrine.axxes.app/', 'webmaster': 'https://wm.axxes.app/api/healthz'}
+
+def public_health_url(service):
+    url = os.environ.get('CI_PUBLIC_HEALTH_URL')
+    if not url and service.endswith('-v2') and service[:-3] in PUBLIC_HEALTH_URLS:
+        url = 'https://' + service[:-3] + '.v2.axxes.app/'
+    url = url or PUBLIC_HEALTH_URLS.get(service)
+    if not url:
+        raise RuntimeError('Restricted ingress requires a registered public load-balancer health URL')
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.port or parsed.hostname.endswith('.run.app'):
+        raise RuntimeError('Public health URL must be an HTTPS load-balancer origin')
+    return url
+
 def traffic(service):
     return {t['revisionName']:t['percent'] for t in service['status'].get('traffic',[]) if t.get('percent',0)}
 
@@ -66,8 +81,8 @@ def release(service,image,build_id):
         else:
             if not any(c.get('type')=='Ready' and c.get('status')=='True' for c in current['status'].get('conditions',[])):
                 raise RuntimeError('Restricted-ingress revision is not Ready')
-            if not os.environ.get('CI_PUBLIC_HEALTH_URL') and os.environ.get('CI_READY_ONLY')!='true':
-                raise RuntimeError('Restricted ingress requires a public load-balancer health URL')
+            if os.environ.get('CI_READY_ONLY')!='true':
+                public_health_url(service)
         guard=gcloud('run','services','describe',service,'--region='+region)
         if traffic(guard)!=previous or guard['status']['latestReadyRevisionName']!=revision:
             raise RuntimeError('Production changed while the release was staged')
@@ -79,7 +94,7 @@ def release(service,image,build_id):
             if not any(c.get('type')=='Ready' and c.get('status')=='True' for c in health['status'].get('conditions',[])):
                 raise RuntimeError('Internal service is not Ready after promotion')
         else:
-            probe(os.environ.get('CI_PUBLIC_HEALTH_URL') or before['status']['url']+os.environ.get('CI_HEALTH_PATH','/'))
+            probe(public_health_url(service) if before['metadata'].get('annotations',{}).get('run.googleapis.com/ingress','all')!='all' else (os.environ.get('CI_PUBLIC_HEALTH_URL') or before['status']['url']+os.environ.get('CI_HEALTH_PATH','/')))
         print('Release healthy:',service,revision)
         return {'service':service,'previous':original,'revision':revision}
     except Exception:
