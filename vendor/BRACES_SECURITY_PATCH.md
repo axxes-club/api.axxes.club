@@ -1,0 +1,7 @@
+# Bounded local braces 3.0.3 fork
+
+Upstream npm tarball preserved as upstream/braces-3.0.3.tgz. MIT license preserved in package/LICENSE. Source advisory: https://github.com/advisories/GHSA-vfj7-8cjw-p6xm . No upstream patched release is available. Version remains 3.0.3; this artifact is an explicit local security override, not a registry update or basis for claiming npm audit zero.
+
+Changes: parser limits syntactic nesting to 128 stack entries; direct compile/expand/stringify entrypoints validate AST iteratively before recursive traversal. Maximum traversal depth128, maximum20000 nodes, repeated/cyclic nodes rejected. Limits cannot be raised by caller options. Parent/prev references are deliberately not traversed. Oversized trees throw SyntaxError with code ERR_BRACES_COMPLEXITY. This bounds the advisory's recursive AST stack overflow. It does not add a universal expansion-output budget; existing rangeLimit/expansion risks remain separate.
+
+Tests before patch: five complexity regressions failed, ordinary behavior passed (red.log). After patch nine pass, including 8001-character nested brace/parenthesis strings below upstream maxLength, all three direct AST entrypoints, cyclic ASTs and ordinary alternation/ranges plus bounded nesting and broad-AST rejection. Command: NODE_PATH=/Users/admin/Developer/payments-checkout/node_modules node --test tests/security.test.cjs . External dependency is unmodified fill-range7.1.1. Linux consumer verification remains required.
