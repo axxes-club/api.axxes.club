@@ -1,3 +1,4 @@
+class BudgetDenied extends Error {}
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 export interface ApiRequest extends IncomingMessage { body?: any; query?: Record<string, string | string[]>; }
@@ -55,12 +56,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const candidate = chain.at(-2);
     const client = chain.length>=2 && trusted.includes(chain.at(-1)!) && isIP(candidate||"") ? candidate : "untrusted";
     try {
+      await prisma.$transaction(async tx=>{
       for (const [identity, limit] of [["anonymous-global", 500], [`anonymous-client:${client}`, 60]] as const) {
         const bucket = createHash("sha256").update(`${identity}:${Math.floor(Date.now()/60000)}`).digest("hex");
-        const admitted = await prisma.$queryRawUnsafe<{hits:number}[]>("WITH cleanup AS (DELETE FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 AND key IN (SELECT key FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 ORDER BY expires_at LIMIT 20 FOR UPDATE SKIP LOCKED)) INSERT INTO api_security_rate_limits(key,hits,expires_at) VALUES($1,1,now()+interval '2 minutes') ON CONFLICT(key) DO UPDATE SET hits=api_security_rate_limits.hits+1 WHERE api_security_rate_limits.hits<$2 RETURNING hits",bucket,limit);
-        if (admitted.length!==1) return res.status(429).json({error:{type:"rate_limit_error",message:"Request limit exceeded"}});
+        const admitted = await tx.$queryRawUnsafe<{hits:number}[]>("WITH cleanup AS (DELETE FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 AND key IN (SELECT key FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 ORDER BY expires_at LIMIT 20 FOR UPDATE SKIP LOCKED)) INSERT INTO api_security_rate_limits(key,hits,expires_at) VALUES($1,1,now()+interval '2 minutes') ON CONFLICT(key) DO UPDATE SET hits=api_security_rate_limits.hits+1 WHERE api_security_rate_limits.hits<$2 RETURNING hits",bucket,limit);
+        if (admitted.length!==1) throw new BudgetDenied();
       }
-    } catch { return res.status(503).json({error:{type:"service_error",message:"API admission unavailable"}}); }
+      });
+    } catch(error) { return res.status(error instanceof BudgetDenied?429:503).json({error:{type:"service_error",message:"API admission unavailable"}}); }
 
     const authHeader = req.headers.authorization;
     const apiKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -88,15 +91,17 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       [`account-month:${auth.account.id}`, 2592000, 100000],
     ];
     try {
+      await prisma.$transaction(async tx=>{
       for (const [identity, seconds, limit] of policies) {
         const window = Math.floor(Date.now() / (seconds * 1000));
         const key = createHash("sha256").update(`${identity}:${window}`).digest("hex");
-        const rows = await prisma.$queryRawUnsafe<{ hits: number }[]>(
+        const rows = await tx.$queryRawUnsafe<{ hits: number }[]>(
           "WITH cleanup AS (DELETE FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 AND key IN (SELECT key FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 ORDER BY expires_at LIMIT 20 FOR UPDATE SKIP LOCKED)) INSERT INTO api_security_rate_limits(key,hits,expires_at) VALUES($1,1,now()+($2::int*interval '1 second')) ON CONFLICT(key) DO UPDATE SET hits=api_security_rate_limits.hits+1 WHERE api_security_rate_limits.hits<$3 RETURNING hits", key, seconds * 2, limit);
-        if (rows.length !== 1) return res.status(429).json({ error: { type: "rate_limit_error", message: "API usage limit exceeded" } });
+        if (rows.length !== 1) throw new BudgetDenied();
       }
-    } catch {
-      return res.status(503).json({ error: { type: "service_error", message: "API admission unavailable" } });
+      });
+    } catch(error) {
+      return res.status(error instanceof BudgetDenied?429:503).json({ error: { type: "service_error", message: "API admission unavailable" } });
     }
 
     // GET /v1/events
