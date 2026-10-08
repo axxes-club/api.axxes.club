@@ -57,7 +57,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     try {
       for (const [identity, limit] of [["anonymous-global", 500], [`anonymous-client:${client}`, 60]] as const) {
         const bucket = createHash("sha256").update(`${identity}:${Math.floor(Date.now()/60000)}`).digest("hex");
-        const admitted = await prisma.$queryRawUnsafe<{hits:number}[]>("WITH cleanup AS (DELETE FROM api_security_rate_limits WHERE key IN (SELECT key FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 ORDER BY expires_at LIMIT 20 FOR UPDATE SKIP LOCKED)) INSERT INTO api_security_rate_limits(key,hits,expires_at) VALUES($1,1,now()+interval '2 minutes') ON CONFLICT(key) DO UPDATE SET hits=api_security_rate_limits.hits+1 WHERE api_security_rate_limits.hits<$2 RETURNING hits",bucket,limit);
+        const admitted = await prisma.$queryRawUnsafe<{hits:number}[]>("WITH cleanup AS (DELETE FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 AND key IN (SELECT key FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 ORDER BY expires_at LIMIT 20 FOR UPDATE SKIP LOCKED)) INSERT INTO api_security_rate_limits(key,hits,expires_at) VALUES($1,1,now()+interval '2 minutes') ON CONFLICT(key) DO UPDATE SET hits=api_security_rate_limits.hits+1 WHERE api_security_rate_limits.hits<$2 RETURNING hits",bucket,limit);
         if (admitted.length!==1) return res.status(429).json({error:{type:"rate_limit_error",message:"Request limit exceeded"}});
       }
     } catch { return res.status(503).json({error:{type:"service_error",message:"API admission unavailable"}}); }
@@ -92,7 +92,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         const window = Math.floor(Date.now() / (seconds * 1000));
         const key = createHash("sha256").update(`${identity}:${window}`).digest("hex");
         const rows = await prisma.$queryRawUnsafe<{ hits: number }[]>(
-          "WITH cleanup AS (DELETE FROM api_security_rate_limits WHERE key IN (SELECT key FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 ORDER BY expires_at LIMIT 20 FOR UPDATE SKIP LOCKED)) INSERT INTO api_security_rate_limits(key,hits,expires_at) VALUES($1,1,now()+($2::int*interval '1 second')) ON CONFLICT(key) DO UPDATE SET hits=api_security_rate_limits.hits+1 WHERE api_security_rate_limits.hits<$3 RETURNING hits", key, seconds * 2, limit);
+          "WITH cleanup AS (DELETE FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 AND key IN (SELECT key FROM api_security_rate_limits WHERE expires_at < statement_timestamp()-interval '1 hour' AND key<>$1 ORDER BY expires_at LIMIT 20 FOR UPDATE SKIP LOCKED)) INSERT INTO api_security_rate_limits(key,hits,expires_at) VALUES($1,1,now()+($2::int*interval '1 second')) ON CONFLICT(key) DO UPDATE SET hits=api_security_rate_limits.hits+1 WHERE api_security_rate_limits.hits<$3 RETURNING hits", key, seconds * 2, limit);
         if (rows.length !== 1) return res.status(429).json({ error: { type: "rate_limit_error", message: "API usage limit exceeded" } });
       }
     } catch {
