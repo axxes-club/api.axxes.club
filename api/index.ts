@@ -23,7 +23,7 @@ async function validateApiKey(key: string) {
     include: { account: true },
   });
 
-  if (!apiKey || apiKey.revokedAt || (apiKey.expiresAt && apiKey.expiresAt.getTime() <= Date.now()) || apiKey.type !== type || apiKey.mode !== mode) return null;
+  if (!apiKey || apiKey.account?.isActive !== true || apiKey.revokedAt || (apiKey.expiresAt && apiKey.expiresAt.getTime() <= Date.now()) || apiKey.type !== type || apiKey.mode !== mode) return null;
   return { apiKey, account: apiKey.account, type, mode, livemode: mode === "LIVE" };
 }
 
