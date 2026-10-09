@@ -12,6 +12,7 @@ datasource db {
 // ─────────────────────────────────────────────────────────────────
 
 model Account {
+  isActive                 Boolean  @default(true)
   id                       String   @id @default(cuid())
   name                     String
   email                    String   @unique

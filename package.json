@@ -12,7 +12,9 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test": "node --test tests/*.test.cjs scripts/test-prisma-cache.cjs",
+    "test:security": "node --test tests/*.test.cjs scripts/test-prisma-cache.cjs"
   },
   "keywords": [
     "ticketing",
@@ -34,8 +36,10 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
-    "@vercel/node": "^5.6.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
+  },
+  "overrides": {
+    "esbuild": "0.28.2"
   }
 }
